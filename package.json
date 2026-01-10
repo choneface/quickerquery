@@ -1,7 +1,14 @@
 {
+	"name": "quickquery",
+	"version": "0.0.1",
 	"type": "module",
+	"bin": {
+		"qq": "./dist/index.js"
+	},
 	"scripts": {
-		"dev": "tsx src/index.tsx"
+		"dev": "tsx src/index.tsx",
+		"start": "tsx src/index.tsx",
+		"build": "tsc"
 	},
 	"dependencies": {
 		"ink": "^6.6.0",
@@ -9,6 +16,7 @@
 		"react": "^19.2.3"
 	},
 	"devDependencies": {
+		"@types/node": "^25.0.5",
 		"@types/react": "^19.2.7",
 		"tsx": "^4.21.0",
 		"typescript": "^5.9.3"
