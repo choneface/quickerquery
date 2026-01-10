@@ -1,10 +1,24 @@
 {
 	"name": "quickquery",
 	"version": "0.0.1",
+	"description": "A terminal-based database query tool inspired by JetBrains DataGrip",
+	"license": "MIT",
 	"type": "module",
 	"bin": {
 		"qq": "./dist/index.js"
 	},
+	"files": [
+		"dist"
+	],
+	"keywords": [
+		"database",
+		"sql",
+		"postgresql",
+		"tui",
+		"cli",
+		"terminal",
+		"query"
+	],
 	"scripts": {
 		"dev": "tsx src/index.tsx",
 		"start": "tsx src/index.tsx",
