@@ -1,5 +1,5 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
 import { ResultHeader } from './ResultHeader.js';
 import { ResultRow } from './ResultRow.js';
@@ -10,8 +10,7 @@ const DEFAULT_VISIBLE_ROWS = 15;
 const PAGE_SIZE = 10;
 export const QueryResults = ({ data, onBack }) => {
     const { stdout } = useStdout();
-    const [scrollOffset, setScrollOffset] = useState(0);
-    const [selectedRow, setSelectedRow] = useState(0);
+    const [view, setView] = useState({ selectedRow: 0, scrollOffset: 0 });
     // Get terminal dimensions
     const terminalHeight = stdout?.rows ?? 24;
     const terminalWidth = stdout?.columns ?? 80;
@@ -25,61 +24,50 @@ export const QueryResults = ({ data, onBack }) => {
     );
     const isTooNarrow = terminalWidth < minRequiredWidth + 2;
     const maxScroll = Math.max(0, data.rows.length - visibleRows);
+    const lastRow = data.rows.length - 1;
+    // Helper to update view state while keeping selection in viewport
+    const navigate = (newSelected) => {
+        setView((prev) => {
+            const selected = Math.max(0, Math.min(lastRow, newSelected));
+            let offset = prev.scrollOffset;
+            // Scroll up if selection moves above viewport
+            if (selected < offset) {
+                offset = selected;
+            }
+            // Scroll down if selection moves below viewport
+            else if (selected >= offset + visibleRows) {
+                offset = Math.min(maxScroll, selected - visibleRows + 1);
+            }
+            return { selectedRow: selected, scrollOffset: offset };
+        });
+    };
     useInput((input, key) => {
         if (input === 'q' || key.escape) {
             onBack();
             return;
         }
         if (key.upArrow) {
-            setSelectedRow((prev) => Math.max(0, prev - 1));
-            // Scroll up if selected row is above visible area
-            setScrollOffset((prev) => {
-                const newSelected = Math.max(0, selectedRow - 1);
-                if (newSelected < prev) {
-                    return newSelected;
-                }
-                return prev;
-            });
+            navigate(view.selectedRow - 1);
         }
         if (key.downArrow) {
-            setSelectedRow((prev) => Math.min(data.rows.length - 1, prev + 1));
-            // Scroll down if selected row is below visible area
-            setScrollOffset((prev) => {
-                const newSelected = Math.min(data.rows.length - 1, selectedRow + 1);
-                if (newSelected >= prev + visibleRows) {
-                    return Math.min(maxScroll, newSelected - visibleRows + 1);
-                }
-                return prev;
-            });
+            navigate(view.selectedRow + 1);
         }
         if (key.pageUp) {
-            setSelectedRow((prev) => Math.max(0, prev - PAGE_SIZE));
-            setScrollOffset((prev) => Math.max(0, prev - PAGE_SIZE));
+            navigate(view.selectedRow - PAGE_SIZE);
         }
         if (key.pageDown) {
-            setSelectedRow((prev) => Math.min(data.rows.length - 1, prev + PAGE_SIZE));
-            setScrollOffset((prev) => Math.min(maxScroll, prev + PAGE_SIZE));
+            navigate(view.selectedRow + PAGE_SIZE);
         }
         // Home - go to first row
         if (key.ctrl && input === 'a') {
-            setSelectedRow(0);
-            setScrollOffset(0);
+            navigate(0);
         }
         // End - go to last row
         if (key.ctrl && input === 'e') {
-            setSelectedRow(data.rows.length - 1);
-            setScrollOffset(maxScroll);
+            navigate(lastRow);
         }
     });
-    // Keep selected row in view
-    useEffect(() => {
-        if (selectedRow < scrollOffset) {
-            setScrollOffset(selectedRow);
-        }
-        else if (selectedRow >= scrollOffset + visibleRows) {
-            setScrollOffset(selectedRow - visibleRows + 1);
-        }
-    }, [selectedRow, scrollOffset, visibleRows]);
+    const { selectedRow, scrollOffset } = view;
     const visibleData = data.rows.slice(scrollOffset, scrollOffset + visibleRows);
     // Terminal too narrow to display table
     if (isTooNarrow) {
