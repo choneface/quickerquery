@@ -1,6 +1,6 @@
 {
 	"name": "quickerquery",
-	"version": "0.0.2",
+	"version": "0.0.3",
 	"description": "A terminal-based database query tool inspired by JetBrains DataGrip",
 	"license": "MIT",
 	"type": "module",
