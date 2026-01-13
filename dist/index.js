@@ -46,6 +46,7 @@ const App = ({ config }) => {
     useEffect(() => {
         if (state !== 'connecting')
             return;
+        let isCancelled = false;
         const newClient = new pg.Client({
             host: config.host,
             port: config.port,
@@ -56,17 +57,25 @@ const App = ({ config }) => {
         newClient
             .connect()
             .then(() => {
-            setClient(newClient);
-            setState('connected');
-        })
-            .catch((err) => {
-            setError(err.message);
-            setState('error');
-        });
-        return () => {
-            if (newClient) {
+            if (!isCancelled) {
+                setClient(newClient);
+                setState('connected');
+            }
+            else {
+                // Connection completed but we've moved on, close it
                 newClient.end().catch(() => { });
             }
+        })
+            .catch((err) => {
+            if (!isCancelled) {
+                setError(err.message);
+                setState('error');
+            }
+        });
+        return () => {
+            isCancelled = true;
+            // Don't close newClient here - if connection succeeds,
+            // it will be stored in state and closed on app exit
         };
     }, [state, config, username, password]);
     const handleQuerySubmit = async () => {
