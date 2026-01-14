@@ -7,9 +7,10 @@ interface ResultRowProps {
 	row: Record<string, unknown>;
 	columns: ColumnInfo[];
 	isSelected?: boolean;
+	needsRightScroll?: boolean;
 }
 
-export const ResultRow = ({ row, columns, isSelected = false }: ResultRowProps) => {
+export const ResultRow = ({ row, columns, isSelected = false, needsRightScroll = false }: ResultRowProps) => {
 	return (
 		<Box>
 			<Text>{isSelected ? '▶' : ' '}</Text>
@@ -22,6 +23,7 @@ export const ResultRow = ({ row, columns, isSelected = false }: ResultRowProps) 
 					<Text color="gray">│</Text>
 				</Box>
 			))}
+			{needsRightScroll && <Text color="cyan">▶</Text>}
 		</Box>
 	);
 };

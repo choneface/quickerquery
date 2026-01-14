@@ -5,19 +5,22 @@ import type { ColumnInfo } from '../types.js';
 
 interface ResultHeaderProps {
 	columns: ColumnInfo[];
+	needsLeftScroll?: boolean;
+	needsRightScroll?: boolean;
 }
 
-export const ResultHeader = ({ columns }: ResultHeaderProps) => {
+export const ResultHeader = ({ columns, needsLeftScroll = false, needsRightScroll = false }: ResultHeaderProps) => {
 	const topBorder = buildBorder(columns, '┌', '┬', '┐');
 	const bottomBorder = buildBorder(columns, '├', '┼', '┤');
+	const scrollIndicator = needsLeftScroll ? '◀' : ' ';
 
 	return (
 		<Box flexDirection="column">
-			<Text color="gray">{' ' + topBorder}</Text>
+			<Text color="gray">{scrollIndicator + topBorder}</Text>
 			<Box>
-				<Text> </Text>
+				<Text color="cyan">{needsLeftScroll ? '◀' : ' '}</Text>
 				<Text color="gray">│</Text>
-				{columns.map((col) => (
+				{columns.map((col, idx) => (
 					<Box key={col.name}>
 						<Text> </Text>
 						<Text bold color="white">
@@ -27,8 +30,9 @@ export const ResultHeader = ({ columns }: ResultHeaderProps) => {
 						<Text color="gray">│</Text>
 					</Box>
 				))}
+				{needsRightScroll && <Text color="cyan">▶</Text>}
 			</Box>
-			<Text color="gray">{' ' + bottomBorder}</Text>
+			<Text color="gray">{scrollIndicator + bottomBorder}</Text>
 		</Box>
 	);
 };

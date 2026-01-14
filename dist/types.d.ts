@@ -29,4 +29,13 @@ export declare function calculateTableWidth(columns: ColumnInfo[]): number;
  * Fit columns to available terminal width by proportionally shrinking if needed.
  * Returns new column array with adjusted widths.
  */
+/**
+ * Calculate how many columns can fit starting from a given offset.
+ * Returns the end index (exclusive) for slicing.
+ */
+export declare function getVisibleColumnRange(columns: ColumnInfo[], startIdx: number, terminalWidth: number): {
+    endIdx: number;
+    needsLeftScroll: boolean;
+    needsRightScroll: boolean;
+};
 export declare function fitColumnsToWidth(columns: ColumnInfo[], terminalWidth: number): ColumnInfo[];

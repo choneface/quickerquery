@@ -8,22 +8,31 @@ interface ResultFooterProps {
 	executionTime: number;
 	viewStart: number;
 	viewEnd: number;
+	colStart: number;
+	colEnd: number;
+	totalColumns: number;
 }
 
-export const ResultFooter = ({ columns, rowCount, executionTime, viewStart, viewEnd }: ResultFooterProps) => {
+export const ResultFooter = ({ columns, rowCount, executionTime, viewStart, viewEnd, colStart, colEnd, totalColumns }: ResultFooterProps) => {
 	const bottomBorder = buildBorder(columns, '└', '┴', '┘');
+	const hasHorizontalScroll = totalColumns > (colEnd - colStart);
 
 	return (
 		<Box flexDirection="column">
 			<Text color="gray">{' ' + bottomBorder}</Text>
 			<Box marginTop={1} gap={2}>
 				<Text dimColor>
-					Showing {viewStart + 1}-{Math.min(viewEnd, rowCount)} of {rowCount} rows
+					Rows {viewStart + 1}-{Math.min(viewEnd, rowCount)} of {rowCount}
 				</Text>
+				{hasHorizontalScroll && (
+					<Text dimColor>
+						Cols {colStart + 1}-{colEnd} of {totalColumns}
+					</Text>
+				)}
 				<Text dimColor>({executionTime.toFixed(0)}ms)</Text>
 			</Box>
 			<Box marginTop={1}>
-				<Text dimColor>↑↓ scroll • PgUp/PgDn page • q back to query</Text>
+				<Text dimColor>↑↓ rows • ←→ columns • PgUp/PgDn page • q back</Text>
 			</Box>
 		</Box>
 	);

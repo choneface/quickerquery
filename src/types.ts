@@ -112,6 +112,42 @@ export function calculateTableWidth(columns: ColumnInfo[]): number {
  * Fit columns to available terminal width by proportionally shrinking if needed.
  * Returns new column array with adjusted widths.
  */
+/**
+ * Calculate how many columns can fit starting from a given offset.
+ * Returns the end index (exclusive) for slicing.
+ */
+export function getVisibleColumnRange(
+	columns: ColumnInfo[],
+	startIdx: number,
+	terminalWidth: number
+): { endIdx: number; needsLeftScroll: boolean; needsRightScroll: boolean } {
+	const FIXED_OVERHEAD = 2; // Selection indicator + initial border
+	const PER_COL_OVERHEAD = 3; // " " + content + " │"
+
+	let usedWidth = FIXED_OVERHEAD;
+	let endIdx = startIdx;
+
+	for (let i = startIdx; i < columns.length; i++) {
+		const colWidth = columns[i].width + PER_COL_OVERHEAD;
+		if (usedWidth + colWidth > terminalWidth) {
+			break;
+		}
+		usedWidth += colWidth;
+		endIdx = i + 1;
+	}
+
+	// Ensure at least one column is visible
+	if (endIdx === startIdx && startIdx < columns.length) {
+		endIdx = startIdx + 1;
+	}
+
+	return {
+		endIdx,
+		needsLeftScroll: startIdx > 0,
+		needsRightScroll: endIdx < columns.length,
+	};
+}
+
 export function fitColumnsToWidth(columns: ColumnInfo[], terminalWidth: number): ColumnInfo[] {
 	const MIN_COL_WIDTH = 3; // Minimum readable width
 	const FIXED_OVERHEAD = 2; // Selection indicator + initial border

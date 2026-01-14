@@ -4,7 +4,7 @@ import { ResultHeader } from './ResultHeader.js';
 import { ResultRow } from './ResultRow.js';
 import { ResultFooter } from './ResultFooter.js';
 import { ScrollIndicator } from './ScrollIndicator.js';
-import { fitColumnsToWidth, calculateTableWidth, type QueryResultData } from '../types.js';
+import { fitColumnsToWidth, calculateTableWidth, getVisibleColumnRange, type QueryResultData } from '../types.js';
 
 interface QueryResultsProps {
 	data: QueryResultData;
@@ -14,6 +14,7 @@ interface QueryResultsProps {
 interface ViewState {
 	selectedRow: number;
 	scrollOffset: number;
+	scrollOffsetX: number;
 }
 
 const DEFAULT_VISIBLE_ROWS = 15;
@@ -21,7 +22,7 @@ const PAGE_SIZE = 10;
 
 export const QueryResults = ({ data, onBack }: QueryResultsProps) => {
 	const { stdout } = useStdout();
-	const [view, setView] = useState<ViewState>({ selectedRow: 0, scrollOffset: 0 });
+	const [view, setView] = useState<ViewState>({ selectedRow: 0, scrollOffset: 0, scrollOffsetX: 0 });
 
 	// Get terminal dimensions
 	const terminalHeight = stdout?.rows ?? 24;
@@ -30,22 +31,28 @@ export const QueryResults = ({ data, onBack }: QueryResultsProps) => {
 	// Calculate visible rows based on terminal height (reserve space for header/footer)
 	const visibleRows = Math.max(5, Math.min(DEFAULT_VISIBLE_ROWS, terminalHeight - 12));
 
-	// Fit columns to terminal width (memoized to avoid recalculating on every render)
-	const fittedColumns = useMemo(
-		() => fitColumnsToWidth(data.columns, terminalWidth - 2), // -2 for scroll indicator
-		[data.columns, terminalWidth]
+	// Calculate visible columns based on horizontal scroll offset
+	const { scrollOffsetX } = view;
+	const { endIdx: visibleEndIdx, needsLeftScroll, needsRightScroll } = useMemo(
+		() => getVisibleColumnRange(data.columns, scrollOffsetX, terminalWidth - 2),
+		[data.columns, scrollOffsetX, terminalWidth]
 	);
 
-	// Check if terminal is too narrow to display anything useful
-	const minRequiredWidth = calculateTableWidth(
-		data.columns.map((c) => ({ ...c, width: 3 })) // Minimum 3 chars per column
-	);
-	const isTooNarrow = terminalWidth < minRequiredWidth + 2;
+	// Get the visible columns slice and fit them to width
+	const visibleColumns = useMemo(() => {
+		const sliced = data.columns.slice(scrollOffsetX, visibleEndIdx);
+		return fitColumnsToWidth(sliced, terminalWidth - 2);
+	}, [data.columns, scrollOffsetX, visibleEndIdx, terminalWidth]);
+
+	// Check if terminal is too narrow to display anything useful (at least one column with min width)
+	const isTooNarrow = terminalWidth < 2 + 3 + 3; // overhead + min col width + per-col overhead
 
 	const maxScroll = Math.max(0, data.rows.length - visibleRows);
 	const lastRow = data.rows.length - 1;
 
-	// Helper to update view state while keeping selection in viewport
+	const lastColumn = data.columns.length - 1;
+
+	// Helper to update view state while keeping selection in viewport (vertical)
 	const navigate = (newSelected: number) => {
 		setView((prev) => {
 			const selected = Math.max(0, Math.min(lastRow, newSelected));
@@ -60,8 +67,16 @@ export const QueryResults = ({ data, onBack }: QueryResultsProps) => {
 				offset = Math.min(maxScroll, selected - visibleRows + 1);
 			}
 
-			return { selectedRow: selected, scrollOffset: offset };
+			return { ...prev, selectedRow: selected, scrollOffset: offset };
 		});
+	};
+
+	// Helper for horizontal navigation
+	const navigateX = (newOffsetX: number) => {
+		setView((prev) => ({
+			...prev,
+			scrollOffsetX: Math.max(0, Math.min(lastColumn, newOffsetX)),
+		}));
 	};
 
 	useInput((input, key) => {
@@ -76,6 +91,14 @@ export const QueryResults = ({ data, onBack }: QueryResultsProps) => {
 
 		if (key.downArrow) {
 			navigate(view.selectedRow + 1);
+		}
+
+		if (key.leftArrow) {
+			navigateX(view.scrollOffsetX - 1);
+		}
+
+		if (key.rightArrow) {
+			navigateX(view.scrollOffsetX + 1);
 		}
 
 		if (key.pageUp) {
@@ -105,10 +128,7 @@ export const QueryResults = ({ data, onBack }: QueryResultsProps) => {
 		return (
 			<Box flexDirection="column" padding={1}>
 				<Text color="yellow">Terminal too narrow to display results.</Text>
-				<Text dimColor>
-					Need at least {minRequiredWidth + 2} columns, have {terminalWidth}.
-				</Text>
-				<Text dimColor>Resize terminal or reduce number of columns in query.</Text>
+				<Text dimColor>Resize terminal to at least 10 columns wide.</Text>
 				<Box marginTop={1}>
 					<Text dimColor>Press q to go back</Text>
 				</Box>
@@ -130,15 +150,16 @@ export const QueryResults = ({ data, onBack }: QueryResultsProps) => {
 
 	return (
 		<Box flexDirection="column">
-			<ResultHeader columns={fittedColumns} />
+			<ResultHeader columns={visibleColumns} needsLeftScroll={needsLeftScroll} needsRightScroll={needsRightScroll} />
 			<Box>
 				<Box flexDirection="column">
 					{visibleData.map((row, idx) => (
 						<ResultRow
 							key={scrollOffset + idx}
 							row={row}
-							columns={fittedColumns}
+							columns={visibleColumns}
 							isSelected={scrollOffset + idx === selectedRow}
+							needsRightScroll={needsRightScroll}
 						/>
 					))}
 				</Box>
@@ -149,11 +170,14 @@ export const QueryResults = ({ data, onBack }: QueryResultsProps) => {
 				/>
 			</Box>
 			<ResultFooter
-				columns={fittedColumns}
+				columns={visibleColumns}
 				rowCount={data.rowCount}
 				executionTime={data.executionTime}
 				viewStart={scrollOffset}
 				viewEnd={scrollOffset + visibleRows}
+				colStart={scrollOffsetX}
+				colEnd={visibleEndIdx}
+				totalColumns={data.columns.length}
 			/>
 		</Box>
 	);
