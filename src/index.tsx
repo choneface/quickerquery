@@ -41,10 +41,15 @@ const App = ({ config }: AppProps) => {
 	const [password, setPassword] = useState('');
 	const [error, setError] = useState<string>('');
 	const [client, setClient] = useState<pg.Client | null>(null);
-	const [query, setQuery] = useState('SELECT 1');
+	const [query, setQuery] = useState('');
 	const [results, setResults] = useState<QueryResultData | null>(null);
 	const [queryError, setQueryError] = useState<string>('');
 	const [schema, setSchema] = useState<DatabaseSchema | null>(null);
+
+	// Query history state
+	const [history, setHistory] = useState<string[]>([]);
+	const [historyIndex, setHistoryIndex] = useState(-1); // -1 means "new query" mode
+	const [draft, setDraft] = useState(''); // Stores current input when navigating history
 
 	useInput((input, key) => {
 		if (key.ctrl && input === 'c') {
@@ -52,6 +57,37 @@ const App = ({ config }: AppProps) => {
 				client.end();
 			}
 			exit();
+		}
+
+		// History navigation only when in connected state (query editor active)
+		if (state === 'connected' && history.length > 0) {
+			if (key.upArrow) {
+				if (historyIndex === -1) {
+					// Starting to navigate history - save current query as draft
+					setDraft(query);
+					// Go to most recent history item
+					setHistoryIndex(history.length - 1);
+					setQuery(history[history.length - 1]);
+				} else if (historyIndex > 0) {
+					// Go to older history item
+					setHistoryIndex(historyIndex - 1);
+					setQuery(history[historyIndex - 1]);
+				}
+			}
+
+			if (key.downArrow) {
+				if (historyIndex !== -1) {
+					if (historyIndex < history.length - 1) {
+						// Go to newer history item
+						setHistoryIndex(historyIndex + 1);
+						setQuery(history[historyIndex + 1]);
+					} else {
+						// Back to draft (new query mode)
+						setHistoryIndex(-1);
+						setQuery(draft);
+					}
+				}
+			}
 		}
 	});
 
@@ -116,16 +152,29 @@ const App = ({ config }: AppProps) => {
 	const handleQuerySubmit = async () => {
 		if (!client || !query.trim()) return;
 
+		const executedQuery = query.trim();
 		setQueryError('');
 		setState('executing');
 
 		const startTime = performance.now();
 		try {
-			const result = await client.query(query);
+			const result = await client.query(executedQuery);
 			const executionTime = performance.now() - startTime;
 			const parsed = parseQueryResult(result, executionTime);
 			setResults(parsed);
 			setState('results');
+
+			// Add to history if it's not a duplicate of the last entry
+			setHistory((prev) => {
+				if (prev.length === 0 || prev[prev.length - 1] !== executedQuery) {
+					return [...prev, executedQuery];
+				}
+				return prev;
+			});
+
+			// Reset history navigation state
+			setHistoryIndex(-1);
+			setDraft('');
 		} catch (err) {
 			setQueryError((err as Error).message);
 			setState('connected');
@@ -220,7 +269,10 @@ const App = ({ config }: AppProps) => {
 					</Box>
 				</Box>
 				<Box marginTop={1}>
-					<Text dimColor>Ctrl+C to exit</Text>
+					<Text dimColor>↑↓ history • Enter execute • Ctrl+C exit</Text>
+					{historyIndex !== -1 && (
+						<Text dimColor color="yellow"> ({historyIndex + 1}/{history.length})</Text>
+					)}
 				</Box>
 			</Box>
 		);
