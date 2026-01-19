@@ -8,6 +8,7 @@ A terminal-based database query tool inspired by JetBrains DataGrip. Query datab
 - **Syntax highlighting** - SQL editor with code highlighting in the terminal
 - **Secure authentication** - Masked password input for secure credential entry
 - **Keyboard-driven** - Fast, distraction-free interface built for developers
+- **Headless mode** - Run queries non-interactively for scripts and automation
 - **Lightweight** - Minimal dependencies, quick startup time
 
 ## Installation
@@ -42,6 +43,29 @@ Once connected, you'll have a SQL editor where you can write and execute queries
 
 - **Enter** - Execute query
 - **Ctrl+C** - Exit the application
+
+### Headless Mode
+
+Run queries non-interactively for use in scripts, pipelines, or automation:
+
+```bash
+qq --headless <database-url> -c "<sql-query>" -u <username> -p <password>
+```
+
+#### Examples
+
+```bash
+# Query with inline credentials
+qq --headless jdbc:postgresql://localhost:5432/mydb -c "SELECT * FROM users" -u postgres -p mypassword
+
+# Using environment variables for credentials
+PGUSER=postgres PGPASSWORD=mypassword qq --headless jdbc:postgresql://localhost:5432/mydb -c "SELECT * FROM users"
+```
+
+#### Output Format
+
+- **SELECT queries** - Results are output as CSV to stdout
+- **INSERT/UPDATE/DELETE queries** - Outputs the number of affected rows
 
 ## Development
 
