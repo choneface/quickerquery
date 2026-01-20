@@ -49,10 +49,28 @@ export function parseContext(query) {
                 tables,
                 partial,
             };
+        case 'ON': {
+            // Check if we're at the start of a JOIN ON clause (good place for FK suggestion)
+            const joinTables = extractJoinOnTables(query, upperQuery);
+            if (joinTables) {
+                return {
+                    type: 'JOIN_ON',
+                    leftTable: joinTables.leftTable,
+                    rightTable: joinTables.rightTable,
+                    tables,
+                    partial,
+                };
+            }
+            // Fall through to WHERE_COLUMN if we can't determine tables
+            return {
+                type: 'WHERE_COLUMN',
+                tables,
+                partial,
+            };
+        }
         case 'WHERE':
         case 'AND':
         case 'OR':
-        case 'ON':
         case 'HAVING':
         case 'SET':
             return {
@@ -140,4 +158,34 @@ function isAfterJoinKeyword(upperQuery, position) {
         }
     }
     return false;
+}
+/**
+ * Extract the left and right tables for a JOIN ON clause.
+ * For "SELECT * FROM users JOIN orders ON |", returns { leftTable: "users", rightTable: "orders" }
+ */
+function extractJoinOnTables(query, upperQuery) {
+    // Find the FROM table (left table)
+    const fromMatch = query.match(/\bFROM\s+(\w+)/i);
+    if (!fromMatch) {
+        return null;
+    }
+    const leftTable = fromMatch[1].toLowerCase();
+    // Find the last ON keyword position
+    const lastOnIndex = upperQuery.lastIndexOf(' ON');
+    if (lastOnIndex === -1) {
+        return null;
+    }
+    // Find the JOIN clause that precedes this ON
+    // Look for pattern: JOIN table_name ... ON
+    const beforeOn = query.slice(0, lastOnIndex);
+    // Match the most recent JOIN with its table name
+    // This handles: JOIN orders, LEFT JOIN orders, etc.
+    const joinMatches = [...beforeOn.matchAll(/\b(?:LEFT\s+|RIGHT\s+|INNER\s+|OUTER\s+|FULL\s+|CROSS\s+)?JOIN\s+(\w+)/gi)];
+    if (joinMatches.length === 0) {
+        return null;
+    }
+    // Get the last JOIN match (the one this ON belongs to)
+    const lastJoinMatch = joinMatches[joinMatches.length - 1];
+    const rightTable = lastJoinMatch[1].toLowerCase();
+    return { leftTable, rightTable };
 }

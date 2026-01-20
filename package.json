@@ -26,7 +26,7 @@
 	},
 	"dependencies": {
 		"ink": "^6.6.0",
-		"ink-mini-code-editor": "^0.0.3",
+		"ink-mini-code-editor": "^0.0.4",
 		"pg": "^8.16.3",
 		"react": "^19.2.3"
 	},

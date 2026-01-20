@@ -3,10 +3,16 @@ export interface ColumnMeta {
     dataType: string;
     isNullable: boolean;
 }
+export interface ForeignKey {
+    column: string;
+    referencedTable: string;
+    referencedColumn: string;
+}
 export interface TableInfo {
     name: string;
     schema: string;
     columns: ColumnMeta[];
+    foreignKeys: ForeignKey[];
 }
 export interface DatabaseSchema {
     tables: TableInfo[];
@@ -22,6 +28,12 @@ export type SQLContext = {
     partial: string;
 } | {
     type: 'JOIN_TABLE';
+    partial: string;
+} | {
+    type: 'JOIN_ON';
+    leftTable: string;
+    rightTable: string;
+    tables: string[];
     partial: string;
 } | {
     type: 'WHERE_COLUMN';

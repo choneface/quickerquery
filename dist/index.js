@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useState, useEffect } from 'react';
+import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
+import { useState, useEffect, useMemo } from 'react';
 import { render, Box, Text, useApp, useInput } from 'ink';
 import TextInput from 'ink-mini-code-editor';
 import pg from 'pg';
@@ -28,16 +28,51 @@ const App = ({ config }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [client, setClient] = useState(null);
-    const [query, setQuery] = useState('SELECT 1');
+    const [query, setQuery] = useState('');
     const [results, setResults] = useState(null);
-    const [queryError, setQueryError] = useState('');
+    const [queryErrors, setQueryErrors] = useState([]);
     const [schema, setSchema] = useState(null);
+    // Query history state
+    const [history, setHistory] = useState([]);
+    const [historyIndex, setHistoryIndex] = useState(-1); // -1 means "new query" mode
+    const [draft, setDraft] = useState(''); // Stores current input when navigating history
     useInput((input, key) => {
         if (key.ctrl && input === 'c') {
             if (client) {
                 client.end();
             }
             exit();
+        }
+        // History navigation only when in connected state (query editor active)
+        if (state === 'connected' && history.length > 0) {
+            if (key.upArrow) {
+                if (historyIndex === -1) {
+                    // Starting to navigate history - save current query as draft
+                    setDraft(query);
+                    // Go to most recent history item
+                    setHistoryIndex(history.length - 1);
+                    setQuery(history[history.length - 1]);
+                }
+                else if (historyIndex > 0) {
+                    // Go to older history item
+                    setHistoryIndex(historyIndex - 1);
+                    setQuery(history[historyIndex - 1]);
+                }
+            }
+            if (key.downArrow) {
+                if (historyIndex !== -1) {
+                    if (historyIndex < history.length - 1) {
+                        // Go to newer history item
+                        setHistoryIndex(historyIndex + 1);
+                        setQuery(history[historyIndex + 1]);
+                    }
+                    else {
+                        // Back to draft (new query mode)
+                        setHistoryIndex(-1);
+                        setQuery(draft);
+                    }
+                }
+            }
         }
     });
     const handleUsernameSubmit = () => {
@@ -92,27 +127,85 @@ const App = ({ config }) => {
             });
         }
     }, [state, client, schema]);
+    // Server-side validation errors only
+    const allErrors = queryErrors;
+    // Constants for error display - only show text for errors, not warnings (to prevent layout shift while typing)
+    const MAX_VISIBLE_ERRORS = 3;
+    const displayableErrors = allErrors.filter((e) => e.severity !== 'WARNING');
+    const visibleErrors = displayableErrors.slice(0, MAX_VISIBLE_ERRORS);
+    const hiddenErrorCount = displayableErrors.length - MAX_VISIBLE_ERRORS;
     const handleQuerySubmit = async () => {
         if (!client || !query.trim())
             return;
-        setQueryError('');
+        const executedQuery = query.trim();
+        setQueryErrors([]);
         setState('executing');
         const startTime = performance.now();
         try {
-            const result = await client.query(query);
+            const result = await client.query(executedQuery);
             const executionTime = performance.now() - startTime;
             const parsed = parseQueryResult(result, executionTime);
             setResults(parsed);
             setState('results');
+            // Add to history if it's not a duplicate of the last entry
+            setHistory((prev) => {
+                if (prev.length === 0 || prev[prev.length - 1] !== executedQuery) {
+                    return [...prev, executedQuery];
+                }
+                return prev;
+            });
+            // Reset history navigation state
+            setHistoryIndex(-1);
+            setDraft('');
         }
         catch (err) {
-            setQueryError(err.message);
+            const pgError = err;
+            setQueryErrors([
+                {
+                    message: pgError.message,
+                    position: pgError.position ? parseInt(pgError.position, 10) : undefined,
+                    hint: pgError.hint,
+                    severity: pgError.severity || 'ERROR',
+                    source: 'server',
+                },
+            ]);
             setState('connected');
         }
     };
     const handleBackToQuery = () => {
         setResults(null);
         setState('connected');
+    };
+    // Generate decorations from all errors
+    const errorDecorations = useMemo(() => {
+        if (allErrors.length === 0)
+            return undefined;
+        const decorations = [];
+        for (const error of allErrors) {
+            if (error.position === undefined)
+                continue;
+            const pos = error.position - 1; // Convert to 0-indexed
+            if (pos < 0 || pos >= query.length)
+                continue;
+            // Find word boundaries at error position
+            const afterError = query.slice(pos);
+            const wordMatch = afterError.match(/^\w+/);
+            const length = wordMatch ? wordMatch[0].length : 1;
+            const style = error.severity === 'WARNING' ? 'warning' : 'error';
+            decorations.push({
+                start: pos,
+                end: Math.min(pos + length, query.length),
+                style,
+            });
+        }
+        return decorations.length > 0 ? decorations : undefined;
+    }, [allErrors, query]);
+    // Clear server errors when user edits (client errors auto-recompute)
+    const handleQueryChange = (newValue) => {
+        setQuery(newValue);
+        if (queryErrors.some((e) => e.source === 'server')) {
+            setQueryErrors([]);
+        }
     };
     // Error state
     if (state === 'error') {
@@ -132,7 +225,7 @@ const App = ({ config }) => {
     }
     // Connected - show query editor
     if (state === 'connected') {
-        return (_jsxs(Box, { flexDirection: "column", padding: 1, children: [_jsxs(Box, { children: [_jsx(Text, { bold: true, color: "green", children: "Connected" }), _jsxs(Text, { dimColor: true, children: [" ", username, "@", config.host, ":", config.port, "/", config.database] })] }), queryError && (_jsxs(Box, { marginTop: 1, flexDirection: "column", children: [_jsx(Text, { bold: true, color: "red", children: "Query Error" }), _jsx(Text, { color: "red", children: queryError })] })), _jsxs(Box, { marginTop: 1, flexDirection: "column", children: [_jsx(Text, { dimColor: true, children: "Enter SQL query (press Enter to execute):" }), _jsxs(Box, { children: [_jsx(Text, { color: "cyan", children: "> " }), _jsx(TextInput, { value: query, onChange: setQuery, onSubmit: handleQuerySubmit, language: "sql", placeholder: "SELECT * FROM ...", getSuggestion: schema ? (value) => getSuggestion(value, schema) : undefined })] })] }), _jsx(Box, { marginTop: 1, children: _jsx(Text, { dimColor: true, children: "Ctrl+C to exit" }) })] }));
+        return (_jsxs(Box, { flexDirection: "column", padding: 1, children: [_jsxs(Box, { children: [_jsx(Text, { bold: true, color: "green", children: "Connected" }), _jsxs(Text, { dimColor: true, children: [" ", username, "@", config.host, ":", config.port, "/", config.database] })] }), _jsxs(Box, { marginTop: 1, flexDirection: "column", children: [_jsx(Text, { dimColor: true, children: "Enter SQL query (press Enter to execute):" }), _jsxs(Box, { children: [_jsx(Text, { color: "cyan", children: "> " }), _jsx(TextInput, { value: query, onChange: handleQueryChange, onSubmit: handleQuerySubmit, language: "sql", placeholder: "SELECT * FROM ...", decorations: errorDecorations, getSuggestion: schema ? (value) => getSuggestion(value, schema) : undefined })] })] }), _jsx(Box, { marginTop: 1, flexDirection: "column", children: visibleErrors.length > 0 ? (_jsxs(_Fragment, { children: [visibleErrors.map((error, idx) => (_jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { color: error.severity === 'WARNING' ? 'yellow' : 'red', children: [error.severity === 'WARNING' ? 'Warning' : 'Error', ": ", error.message] }), error.hint && _jsxs(Text, { color: "cyan", children: ["  Hint: ", error.hint] })] }, idx))), hiddenErrorCount > 0 && (_jsxs(Text, { dimColor: true, children: ["(", hiddenErrorCount, ") more error", hiddenErrorCount > 1 ? 's' : '', "..."] }))] })) : (_jsx(Text, { children: " " })) }), _jsxs(Box, { marginTop: 1, children: [_jsx(Text, { dimColor: true, children: "\u2191\u2193 history \u2022 Enter execute \u2022 Ctrl+C exit" }), historyIndex !== -1 && (_jsxs(Text, { dimColor: true, color: "yellow", children: [" (", historyIndex + 1, "/", history.length, ")"] }))] })] }));
     }
     // Login prompts
     return (_jsxs(Box, { flexDirection: "column", padding: 1, children: [_jsx(Text, { bold: true, children: "QuickQuery" }), _jsxs(Text, { dimColor: true, children: [config.host, ":", config.port, "/", config.database] }), _jsxs(Box, { marginTop: 1, flexDirection: "column", children: [_jsxs(Box, { children: [_jsx(Text, { children: "Username: " }), state === 'username' ? (_jsx(TextInput, { value: username, onChange: setUsername, onSubmit: handleUsernameSubmit, placeholder: "Enter username" })) : (_jsx(Text, { children: username }))] }), state === 'password' && (_jsxs(Box, { children: [_jsx(Text, { children: "Password: " }), _jsx(TextInput, { value: password, onChange: setPassword, onSubmit: handlePasswordSubmit, placeholder: "Enter password", mask: "*" })] }))] })] }));

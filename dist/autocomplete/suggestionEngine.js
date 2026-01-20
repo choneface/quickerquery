@@ -10,7 +10,7 @@ export function getSuggestion(query, schema) {
         return undefined;
     }
     // Build the complete suggestion by replacing the partial with the match
-    const suggestion = ranked[0].text;
+    const suggestion = matchCase(ranked[0].text, context.partial);
     if (!context.partial) {
         // No partial word - just append the suggestion
         return query + suggestion;
@@ -18,6 +18,27 @@ export function getSuggestion(query, schema) {
     // Replace the partial word with the full suggestion
     const beforePartial = query.slice(0, query.length - context.partial.length);
     return beforePartial + suggestion;
+}
+/**
+ * Transform the suggestion to match the case style of the partial word typed by the user.
+ * - If partial is all lowercase → return suggestion in lowercase
+ * - If partial is all uppercase → return suggestion in uppercase
+ * - Otherwise → return suggestion as-is (original case)
+ */
+function matchCase(suggestion, partial) {
+    if (!partial) {
+        return suggestion;
+    }
+    const isAllLower = partial === partial.toLowerCase();
+    const isAllUpper = partial === partial.toUpperCase();
+    if (isAllLower) {
+        return suggestion.toLowerCase();
+    }
+    if (isAllUpper) {
+        return suggestion.toUpperCase();
+    }
+    // Mixed case - return original
+    return suggestion;
 }
 function getCandidates(context, schema) {
     const candidates = [];
@@ -51,6 +72,19 @@ function getCandidates(context, schema) {
             // Suggest table names
             for (const table of schema.tables) {
                 candidates.push({ text: table.name, priority: 1 });
+            }
+            break;
+        }
+        case 'JOIN_ON': {
+            // Suggest FK-based join conditions with highest priority
+            const joinConditions = getJoinConditions(context.leftTable, context.rightTable, schema);
+            for (const condition of joinConditions) {
+                candidates.push({ text: condition, priority: 0 }); // Highest priority
+            }
+            // Fall back to column suggestions if no FK relationships
+            const columns = getColumnsForTables(context.tables, schema);
+            for (const col of columns) {
+                candidates.push({ text: col, priority: 1 });
             }
             break;
         }
@@ -118,6 +152,35 @@ function getColumnsForTables(tableNames, schema) {
         }
     }
     return columns;
+}
+/**
+ * Get join condition suggestions based on FK relationships between two tables.
+ * Returns conditions like "orders.user_id = users.id"
+ */
+function getJoinConditions(leftTableName, rightTableName, schema) {
+    const conditions = [];
+    const leftTable = schema.tables.find((t) => t.name.toLowerCase() === leftTableName.toLowerCase());
+    const rightTable = schema.tables.find((t) => t.name.toLowerCase() === rightTableName.toLowerCase());
+    if (!leftTable || !rightTable) {
+        return conditions;
+    }
+    // Check if rightTable has FK to leftTable
+    // e.g., orders.user_id -> users.id
+    // Suggests: orders.user_id = users.id
+    for (const fk of rightTable.foreignKeys) {
+        if (fk.referencedTable.toLowerCase() === leftTableName.toLowerCase()) {
+            conditions.push(`${rightTable.name}.${fk.column} = ${leftTable.name}.${fk.referencedColumn}`);
+        }
+    }
+    // Check if leftTable has FK to rightTable
+    // e.g., users.department_id -> departments.id
+    // Suggests: users.department_id = departments.id
+    for (const fk of leftTable.foreignKeys) {
+        if (fk.referencedTable.toLowerCase() === rightTableName.toLowerCase()) {
+            conditions.push(`${leftTable.name}.${fk.column} = ${rightTable.name}.${fk.referencedColumn}`);
+        }
+    }
+    return conditions;
 }
 function rankCandidates(candidates, partial) {
     if (!partial) {

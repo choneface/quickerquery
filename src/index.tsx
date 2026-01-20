@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { render, Box, Text, useApp, useInput } from 'ink';
-import TextInput from 'ink-mini-code-editor';
+import TextInput, { type Decoration } from 'ink-mini-code-editor';
 import pg from 'pg';
 import { QueryResults } from './components/index.js';
 import { parseQueryResult, type QueryResultData } from './types.js';
@@ -15,6 +15,14 @@ interface ConnectionConfig {
 	host: string;
 	port: number;
 	database: string;
+}
+
+interface QueryError {
+	message: string;
+	position?: number; // 1-indexed character position from PostgreSQL
+	hint?: string;
+	severity?: 'ERROR' | 'WARNING' | 'NOTICE';
+	source: 'client' | 'server';
 }
 
 interface AppProps {
@@ -43,7 +51,7 @@ const App = ({ config }: AppProps) => {
 	const [client, setClient] = useState<pg.Client | null>(null);
 	const [query, setQuery] = useState('');
 	const [results, setResults] = useState<QueryResultData | null>(null);
-	const [queryError, setQueryError] = useState<string>('');
+	const [queryErrors, setQueryErrors] = useState<QueryError[]>([]);
 	const [schema, setSchema] = useState<DatabaseSchema | null>(null);
 
 	// Query history state
@@ -149,11 +157,20 @@ const App = ({ config }: AppProps) => {
 		}
 	}, [state, client, schema]);
 
+	// Server-side validation errors only
+	const allErrors = queryErrors;
+
+	// Constants for error display - only show text for errors, not warnings (to prevent layout shift while typing)
+	const MAX_VISIBLE_ERRORS = 3;
+	const displayableErrors = allErrors.filter((e) => e.severity !== 'WARNING');
+	const visibleErrors = displayableErrors.slice(0, MAX_VISIBLE_ERRORS);
+	const hiddenErrorCount = displayableErrors.length - MAX_VISIBLE_ERRORS;
+
 	const handleQuerySubmit = async () => {
 		if (!client || !query.trim()) return;
 
 		const executedQuery = query.trim();
-		setQueryError('');
+		setQueryErrors([]);
 		setState('executing');
 
 		const startTime = performance.now();
@@ -176,7 +193,22 @@ const App = ({ config }: AppProps) => {
 			setHistoryIndex(-1);
 			setDraft('');
 		} catch (err) {
-			setQueryError((err as Error).message);
+			const pgError = err as {
+				message: string;
+				position?: string;
+				hint?: string;
+				severity?: string;
+			};
+
+			setQueryErrors([
+				{
+					message: pgError.message,
+					position: pgError.position ? parseInt(pgError.position, 10) : undefined,
+					hint: pgError.hint,
+					severity: (pgError.severity as QueryError['severity']) || 'ERROR',
+					source: 'server',
+				},
+			]);
 			setState('connected');
 		}
 	};
@@ -184,6 +216,41 @@ const App = ({ config }: AppProps) => {
 	const handleBackToQuery = () => {
 		setResults(null);
 		setState('connected');
+	};
+
+	// Generate decorations from all errors
+	const errorDecorations = useMemo((): Decoration[] | undefined => {
+		if (allErrors.length === 0) return undefined;
+
+		const decorations: Decoration[] = [];
+		for (const error of allErrors) {
+			if (error.position === undefined) continue;
+			const pos = error.position - 1; // Convert to 0-indexed
+			if (pos < 0 || pos >= query.length) continue;
+
+			// Find word boundaries at error position
+			const afterError = query.slice(pos);
+			const wordMatch = afterError.match(/^\w+/);
+			const length = wordMatch ? wordMatch[0].length : 1;
+
+			const style = error.severity === 'WARNING' ? 'warning' : 'error';
+
+			decorations.push({
+				start: pos,
+				end: Math.min(pos + length, query.length),
+				style,
+			});
+		}
+
+		return decorations.length > 0 ? decorations : undefined;
+	}, [allErrors, query]);
+
+	// Clear server errors when user edits (client errors auto-recompute)
+	const handleQueryChange = (newValue: string) => {
+		setQuery(newValue);
+		if (queryErrors.some((e) => e.source === 'server')) {
+			setQueryErrors([]);
+		}
 	};
 
 	// Error state
@@ -248,26 +315,43 @@ const App = ({ config }: AppProps) => {
 					<Text bold color="green">Connected</Text>
 					<Text dimColor> {username}@{config.host}:{config.port}/{config.database}</Text>
 				</Box>
-				{queryError && (
-					<Box marginTop={1} flexDirection="column">
-						<Text bold color="red">Query Error</Text>
-						<Text color="red">{queryError}</Text>
-					</Box>
-				)}
+				{/* Editor */}
 				<Box marginTop={1} flexDirection="column">
 					<Text dimColor>Enter SQL query (press Enter to execute):</Text>
 					<Box>
 						<Text color="cyan">{"> "}</Text>
 						<TextInput
 							value={query}
-							onChange={setQuery}
+							onChange={handleQueryChange}
 							onSubmit={handleQuerySubmit}
 							language="sql"
 							placeholder="SELECT * FROM ..."
+							decorations={errorDecorations}
 							getSuggestion={schema ? (value: string) => getSuggestion(value, schema) : undefined}
 						/>
 					</Box>
 				</Box>
+				{/* Errors - below editor, max 3 descriptions - always reserve space to prevent layout shift */}
+				<Box marginTop={1} flexDirection="column">
+					{visibleErrors.length > 0 ? (
+						<>
+							{visibleErrors.map((error, idx) => (
+								<Box key={idx} flexDirection="column">
+									<Text color={error.severity === 'WARNING' ? 'yellow' : 'red'}>
+										{error.severity === 'WARNING' ? 'Warning' : 'Error'}: {error.message}
+									</Text>
+									{error.hint && <Text color="cyan">  Hint: {error.hint}</Text>}
+								</Box>
+							))}
+							{hiddenErrorCount > 0 && (
+								<Text dimColor>({hiddenErrorCount}) more error{hiddenErrorCount > 1 ? 's' : ''}...</Text>
+							)}
+						</>
+					) : (
+						<Text> </Text>
+					)}
+				</Box>
+				{/* Hints footer */}
 				<Box marginTop={1}>
 					<Text dimColor>↑↓ history • Enter execute • Ctrl+C exit</Text>
 					{historyIndex !== -1 && (

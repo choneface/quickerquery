@@ -13,12 +13,29 @@ export async function loadSchema(client) {
 		WHERE table_schema = current_schema()
 		ORDER BY table_name, ordinal_position
 	`);
+    const foreignKeysResult = await client.query(`
+		SELECT
+			kcu.table_name,
+			kcu.column_name,
+			ccu.table_name AS referenced_table,
+			ccu.column_name AS referenced_column
+		FROM information_schema.key_column_usage kcu
+		JOIN information_schema.constraint_column_usage ccu
+			ON kcu.constraint_name = ccu.constraint_name
+			AND kcu.constraint_schema = ccu.constraint_schema
+		JOIN information_schema.table_constraints tc
+			ON kcu.constraint_name = tc.constraint_name
+			AND kcu.constraint_schema = tc.constraint_schema
+		WHERE tc.constraint_type = 'FOREIGN KEY'
+			AND kcu.table_schema = current_schema()
+	`);
     const tableMap = new Map();
     for (const row of tablesResult.rows) {
         tableMap.set(row.table_name, {
             name: row.table_name,
             schema: 'public',
             columns: [],
+            foreignKeys: [],
         });
     }
     for (const row of columnsResult.rows) {
@@ -30,6 +47,17 @@ export async function loadSchema(client) {
                 isNullable: row.is_nullable === 'YES',
             };
             table.columns.push(column);
+        }
+    }
+    for (const row of foreignKeysResult.rows) {
+        const table = tableMap.get(row.table_name);
+        if (table) {
+            const fk = {
+                column: row.column_name,
+                referencedTable: row.referenced_table,
+                referencedColumn: row.referenced_column,
+            };
+            table.foreignKeys.push(fk);
         }
     }
     return {
