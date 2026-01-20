@@ -8,6 +8,7 @@ import { parseQueryResult, type QueryResultData } from './types.js';
 import { TEST_QUERY_RESULT } from './testdata.js';
 import { loadSchema, createEmptySchema, getSuggestion, type DatabaseSchema } from './autocomplete/index.js';
 import { runHeadless } from './headless.js';
+import { validateColumns } from './validation/index.js';
 
 type AppState = 'username' | 'password' | 'connecting' | 'connected' | 'executing' | 'results' | 'error';
 
@@ -157,8 +158,25 @@ const App = ({ config }: AppProps) => {
 		}
 	}, [state, client, schema]);
 
-	// Server-side validation errors only
-	const allErrors = queryErrors;
+	// Client-side column validation errors
+	const clientValidationErrors = useMemo((): QueryError[] => {
+		if (!query.trim() || !schema) return [];
+		const errors = validateColumns(query, schema);
+		return errors.map((err) => ({
+			message: err.message,
+			position: err.position + 1, // Convert to 1-indexed
+			hint: err.hint,
+			severity: 'ERROR',
+			source: 'client' as const,
+		}));
+	}, [query, schema]);
+
+	// Merge client and server errors (server takes precedence after submit)
+	const allErrors = useMemo((): QueryError[] => {
+		const serverErrors = queryErrors.filter((e) => e.source === 'server');
+		if (serverErrors.length > 0) return serverErrors;
+		return clientValidationErrors;
+	}, [queryErrors, clientValidationErrors]);
 
 	// Constants for error display - only show text for errors, not warnings (to prevent layout shift while typing)
 	const MAX_VISIBLE_ERRORS = 3;
